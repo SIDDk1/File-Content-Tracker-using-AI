@@ -295,19 +295,19 @@ export default function FileSearchSystem() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background bg-gray-500 text-foreground">
       <div className="container mx-auto p-6">
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">Advanced File Search System</h1>
-          <p className="text-muted-foreground">
+        <div className="mb-8 bg-">
+          <h1 className="text-4xl font-bold mb-2">FILE-CONTENT-TRACKER</h1>
+          <p className="text-black-foreground">
             Upload documents and search with high accuracy - supports exact phrases, line numbers, and page numbers
           </p>
         </div>
 
         <Tabs defaultValue="upload" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="upload">Upload Files</TabsTrigger>
-            <TabsTrigger value="search">Search</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-2 bor">
+            <TabsTrigger className="border-2 border-black" value="upload">Upload Files</TabsTrigger>
+            <TabsTrigger className="bg-red-500 border-2 border-red-500 text-black hover:bg-red-600" value="search">Search</TabsTrigger>
           </TabsList>
 
           <TabsContent value="upload" className="space-y-6">

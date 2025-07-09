@@ -8,7 +8,7 @@ npm install jszip mammoth pdf-parse
 
 These libraries provide:
 - jszip: For extracting content from DOCX files (ZIP format)
-- mammoth: Advanced DOCX text extraction with formatting
+- mammoth: DOCX text extraction with formatting
 - pdf-parse: PDF text extraction
 
 After installation, the system will automatically extract real text content from uploaded files.
@@ -35,4 +35,4 @@ textract.fromBufferWithMime('application/msword', docBuffer, (error, text) => {
 });
 `)
 
-console.log("Text extraction setup complete!")
+console.log("Text extracFiletion setup complete!")
