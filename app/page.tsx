@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { Upload, Search, ChevronDown, ChevronUp, Target, Hash } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -47,138 +47,196 @@ export default function FileSearchSystem() {
   const [expandedResults, setExpandedResults] = useState<Record<string, boolean>>({})
   const [previewContent, setPreviewContent] = useState<Record<string, string>>({})
 
+  const processFiles = useCallback(
+    async (fileArray: File[]) => {
+      setIsUploading(true)
+
+      // Initialize progress tracking
+      const initialProgress = fileArray.map((file) => ({
+        filename: file.name,
+        progress: 0,
+        status: "uploading" as const,
+      }))
+      setUploadProgress(initialProgress)
+
+      try {
+        for (let i = 0; i < fileArray.length; i++) {
+          const file = fileArray[i]
+
+          // Update progress - uploading
+          setUploadProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "uploading" } : p)))
+
+          try {
+            // Step 1: Upload the file
+            const formData = new FormData()
+            formData.append("file", file)
+            formData.append("filename", file.name)
+
+            const uploadResponse = await fetch("/api/upload", {
+              method: "POST",
+              body: formData,
+            })
+
+            const uploadResult = await uploadResponse.json()
+
+            if (uploadResponse.ok) {
+              setUploadProgress((prev) =>
+                prev.map((p, idx) => (idx === i ? { ...p, progress: 33, status: "extracting" } : p)),
+              )
+
+              // Step 2: Extract text from the file
+              const extractFormData = new FormData()
+              extractFormData.append("file", file)
+
+              const extractResponse = await fetch("/api/extract-text", {
+                method: "POST",
+                body: extractFormData,
+              })
+
+              let extractedContent = ""
+              let extractedLines: string[] = []
+              let extractedPages: any[] = []
+              let isRealContent = false
+              let lineCount = 0
+              let pageCount = 0
+
+              if (extractResponse.ok) {
+                const extractResult = await extractResponse.json()
+                extractedContent = extractResult.extractedText || ""
+                extractedLines = extractResult.extractedLines || []
+                extractedPages = extractResult.extractedPages || []
+                lineCount = extractResult.lineCount || 0
+                pageCount = extractResult.pageCount || 0
+                isRealContent = extractedContent.length > 50
+                console.log(
+                  `Extracted ${extractedContent.length} characters, ${lineCount} lines, ${pageCount} pages from ${file.name}`,
+                )
+
+                // Store the extracted content for preview
+                setPreviewContent((prev) => ({
+                  ...prev,
+                  [file.name]: extractedContent,
+                }))
+              } else {
+                console.error(`Text extraction failed for ${file.name}`)
+              }
+
+              setUploadProgress((prev) =>
+                prev.map((p, idx) =>
+                  idx === i ? { ...p, progress: 66, status: "processing", isRealContent, lineCount, pageCount } : p,
+                ),
+              )
+
+              // Step 3: Process the file for search indexing
+              const processResponse = await fetch("/api/process", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  filename: file.name,
+                  fileUrl: uploadResult.url,
+                  fileType: file.type,
+                  fileContent: extractedContent,
+                  extractedLines,
+                  extractedPages,
+                }),
+              })
+
+              if (processResponse.ok) {
+                const processResult = await processResponse.json()
+                setUploadProgress((prev) =>
+                  prev.map((p, idx) =>
+                    idx === i
+                      ? {
+                          ...p,
+                          progress: 100,
+                          status: "complete",
+                          isRealContent: processResult.isRealContent,
+                          lineCount: processResult.lineCount,
+                          pageCount: processResult.pageCount,
+                        }
+                      : p,
+                  ),
+                )
+              } else {
+                console.error(`Processing failed for ${file.name}:`, await processResponse.text())
+                setUploadProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)))
+              }
+            } else {
+              console.error(`Upload failed for ${file.name}:`, uploadResult.error || "Unknown error")
+              setUploadProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)))
+            }
+          } catch (fileError) {
+            console.error(`Error processing ${file.name}:`, fileError)
+            setUploadProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)))
+          }
+        }
+      } catch (error) {
+        console.error("Upload error:", error)
+      } finally {
+        setIsUploading(false)
+      }
+    },
+    [setUploadProgress, setIsUploading, setPreviewContent],
+  )
+
   const handleFolderUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files
     if (!files || files.length === 0) return
 
-    setIsUploading(true)
     const fileArray = Array.from(files)
+    await processFiles(fileArray)
+  }
 
-    // Initialize progress tracking
-    const initialProgress = fileArray.map((file) => ({
-      filename: file.name,
-      progress: 0,
-      status: "uploading" as const,
-    }))
-    setUploadProgress(initialProgress)
+  const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
 
-    try {
-      for (let i = 0; i < fileArray.length; i++) {
-        const file = fileArray[i]
+    const items = event.dataTransfer.items
+    if (!items) return
 
-        // Update progress - uploading
-        setUploadProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "uploading" } : p)))
+    const files: File[] = []
 
-        try {
-          // Step 1: Upload the file
-          const formData = new FormData()
-          formData.append("file", file)
-          formData.append("filename", file.name)
-
-          const uploadResponse = await fetch("/api/upload", {
-            method: "POST",
-            body: formData,
+    // Helper function to recursively traverse directories
+    const traverseFileTree = (item: any, path = "") => {
+      return new Promise<void>((resolve) => {
+        if (item.isFile) {
+          item.file((file: File) => {
+            files.push(file)
+            resolve()
           })
-
-          const uploadResult = await uploadResponse.json()
-
-          if (uploadResponse.ok) {
-            setUploadProgress((prev) =>
-              prev.map((p, idx) => (idx === i ? { ...p, progress: 33, status: "extracting" } : p)),
-            )
-
-            // Step 2: Extract text from the file
-            const extractFormData = new FormData()
-            extractFormData.append("file", file)
-
-            const extractResponse = await fetch("/api/extract-text", {
-              method: "POST",
-              body: extractFormData,
-            })
-
-            let extractedContent = ""
-            let extractedLines: string[] = []
-            let extractedPages: any[] = []
-            let isRealContent = false
-            let lineCount = 0
-            let pageCount = 0
-
-            if (extractResponse.ok) {
-              const extractResult = await extractResponse.json()
-              extractedContent = extractResult.extractedText || ""
-              extractedLines = extractResult.extractedLines || []
-              extractedPages = extractResult.extractedPages || []
-              lineCount = extractResult.lineCount || 0
-              pageCount = extractResult.pageCount || 0
-              isRealContent = extractedContent.length > 50
-              console.log(
-                `Extracted ${extractedContent.length} characters, ${lineCount} lines, ${pageCount} pages from ${file.name}`,
-              )
-
-              // Store the extracted content for preview
-              setPreviewContent((prev) => ({
-                ...prev,
-                [file.name]: extractedContent,
-              }))
-            } else {
-              console.error(`Text extraction failed for ${file.name}`)
+        } else if (item.isDirectory) {
+          const dirReader = item.createReader()
+          dirReader.readEntries(async (entries: any[]) => {
+            for (const entry of entries) {
+              await traverseFileTree(entry, path + item.name + "/")
             }
-
-            setUploadProgress((prev) =>
-              prev.map((p, idx) =>
-                idx === i ? { ...p, progress: 66, status: "processing", isRealContent, lineCount, pageCount } : p,
-              ),
-            )
-
-            // Step 3: Process the file for search indexing
-            const processResponse = await fetch("/api/process", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                filename: file.name,
-                fileUrl: uploadResult.url,
-                fileType: file.type,
-                fileContent: extractedContent,
-                extractedLines,
-                extractedPages,
-              }),
-            })
-
-            if (processResponse.ok) {
-              const processResult = await processResponse.json()
-              setUploadProgress((prev) =>
-                prev.map((p, idx) =>
-                  idx === i
-                    ? {
-                        ...p,
-                        progress: 100,
-                        status: "complete",
-                        isRealContent: processResult.isRealContent,
-                        lineCount: processResult.lineCount,
-                        pageCount: processResult.pageCount,
-                      }
-                    : p,
-                ),
-              )
-            } else {
-              console.error(`Processing failed for ${file.name}:`, await processResponse.text())
-              setUploadProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)))
-            }
-          } else {
-            console.error(`Upload failed for ${file.name}:`, uploadResult.error || "Unknown error")
-            setUploadProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)))
-          }
-        } catch (fileError) {
-          console.error(`Error processing ${file.name}:`, fileError)
-          setUploadProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)))
+            resolve()
+          })
+        } else {
+          resolve()
         }
+      })
+    }
+
+    const traversePromises: Promise<void>[] = []
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i].webkitGetAsEntry()
+      if (item) {
+        traversePromises.push(traverseFileTree(item))
       }
-    } catch (error) {
-      console.error("Upload error:", error)
-    } finally {
-      setIsUploading(false)
+    }
+
+    await Promise.all(traversePromises)
+
+    if (files.length > 0) {
+      await processFiles(files)
     }
   }
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+  }
+  
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return
@@ -295,60 +353,91 @@ export default function FileSearchSystem() {
   }
 
   return (
-    <div className="min-h-screen bg-background bg-gray-500 text-foreground">
+    <div className="min-h-screen bg-background">
       <div className="container mx-auto p-6">
-        <div className="mb-8 bg-">
-          <h1 className="text-4xl font-bold mb-2">FILE-CONTENT-TRACKER</h1>
-          <p className="text-black-foreground">
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold mb-2">Advanced File Search System</h1>
+          <p className="text-muted-foreground">
             Upload documents and search with high accuracy - supports exact phrases, line numbers, and page numbers
           </p>
         </div>
 
         <Tabs defaultValue="upload" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 bor">
-            <TabsTrigger className="border-2 border-black" value="upload">Upload Files</TabsTrigger>
-            <TabsTrigger className="bg-red-500 border-2 border-red-500 text-black hover:bg-red-600" value="search">Search</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="upload">Upload Files</TabsTrigger>
+            <TabsTrigger value="search">Search</TabsTrigger>
           </TabsList>
 
           <TabsContent value="upload" className="space-y-6">
-            <Card>
+            <Card className="shadow-lg rounded-lg">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Upload className="h-5 w-5" />
-                  Upload Folder
+                  <Upload className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                  Upload Folder or File
                 </CardTitle>
                 <CardDescription>
-                  Select a folder containing documents. The system will extract text with line and page tracking.
+                  Select a folder or single file containing documents. The system will extract text with line and page tracking.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center">
+                <div
+                  className="border-2 border-dashed border-indigo-400 rounded-lg p-8 text-center cursor-pointer transition transform hover:scale-105 hover:border-indigo-600 dark:border-indigo-600 dark:hover:border-indigo-400"
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                >
                   <input
                     type="file"
                     multiple
+                    // @ts-ignore
                     webkitdirectory=""
                     onChange={handleFolderUpload}
                     className="hidden"
                     id="folder-upload"
                     disabled={isUploading}
                   />
-                  <label htmlFor="folder-upload" className="cursor-pointer flex flex-col items-center gap-4">
-                    <div className="p-4 bg-muted rounded-full">
-                      <Upload className="h-8 w-8" />
-                    </div>
-                    <div>
-                      <p className="text-lg font-medium">Choose Folder</p>
-                      <p className="text-sm text-muted-foreground">Advanced text extraction with line/page tracking</p>
-                    </div>
-                  </label>
+                  <input
+                    type="file"
+                    multiple
+                    onChange={async (e) => {
+                      const files = e.target.files
+                      if (!files) return
+                      await processFiles(Array.from(files))
+                    }}
+                    className="hidden"
+                    id="file-upload"
+                    disabled={isUploading}
+                  />
+                  <div className="flex justify-center gap-8">
+                    <label htmlFor="folder-upload" className="flex flex-col items-center gap-4 cursor-pointer">
+                      <div className="p-4 bg-indigo-100 rounded-full dark:bg-indigo-700">
+                        <Upload className="h-8 w-8 text-indigo-600 dark:text-indigo-300" />
+                      </div>
+                      <div>
+                        <p className="text-lg font-medium text-indigo-700 dark:text-indigo-300">Choose Folder</p>
+                        <p className="text-sm text-indigo-600 dark:text-indigo-400">Advanced text extraction with line/page tracking</p>
+                      </div>
+                    </label>
+                    <label htmlFor="file-upload" className="flex flex-col items-center gap-4 cursor-pointer">
+                      <div className="p-4 bg-indigo-100 rounded-full dark:bg-indigo-700">
+                        <Upload className="h-8 w-8 text-indigo-600 dark:text-indigo-300" />
+                      </div>
+                      <div>
+                        <p className="text-lg font-medium text-indigo-700 dark:text-indigo-300">Choose File</p>
+                        <p className="text-sm text-indigo-600 dark:text-indigo-400">Upload a single or multiple files</p>
+                      </div>
+                    </label>
+                  </div>
+                  <p className="mt-4 text-sm text-indigo-600 dark:text-indigo-400">
+                    Or drag and drop files or folders here
+                  </p>
                 </div>
 
                 {uploadProgress.length > 0 && (
                   <div className="mt-6 space-y-3">
-                    <h3 className="font-medium">Upload Progress</h3>
+                    <h3 className="font-medium text-indigo-700 dark:text-indigo-300">Upload Progress</h3>
                     {uploadProgress.map((file, index) => (
                       <div key={index} className="space-y-2">
-                        <div className="flex justify-between text-sm">
+                        <div className="flex justify-between text-sm text-indigo-700 dark:text-indigo-300">
                           <span className="truncate">{file.filename}</span>
                           <div className="flex gap-2">
                             {file.lineCount && (
@@ -376,10 +465,10 @@ export default function FileSearchSystem() {
           </TabsContent>
 
           <TabsContent value="search" className="space-y-6">
-            <Card>
+            <Card className="shadow-lg rounded-lg">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Search className="h-5 w-5" />
+                  <Search className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                   Advanced Search
                 </CardTitle>
                 <CardDescription>
@@ -395,8 +484,9 @@ export default function FileSearchSystem() {
                     onKeyPress={(e) => e.key === "Enter" && handleSearch()}
                     className="flex-1"
                   />
-                  <Button onClick={handleSearch} disabled={isSearching}>
+                  <Button onClick={handleSearch} disabled={isSearching} className="flex items-center gap-2">
                     {isSearching ? "Searching..." : "Search"}
+                    {isSearching ? null : <Search className="h-4 w-4" />}
                   </Button>
                 </div>
 
@@ -409,7 +499,7 @@ export default function FileSearchSystem() {
                 </Alert>
 
                 {/* Debug section */}
-                <Card className="mt-4">
+                <Card className="mt-4 shadow-lg rounded-lg">
                   <CardHeader>
                     <CardTitle className="text-sm">Debug Info</CardTitle>
                   </CardHeader>
@@ -432,7 +522,7 @@ export default function FileSearchSystem() {
             </Card>
 
             {searchResults.length > 0 && (
-              <Card>
+              <Card className="shadow-lg rounded-lg">
                 <CardHeader>
                   <CardTitle>Search Results</CardTitle>
                   <CardDescription>
@@ -443,7 +533,7 @@ export default function FileSearchSystem() {
                 <CardContent>
                   <div className="space-y-4">
                     {searchResults.map((result, index) => (
-                      <div key={index} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
+                      <div key={index} className="border rounded-lg p-4 hover:bg-indigo-100 dark:hover:bg-indigo-800 transition-colors shadow-md">
                         <div
                           className="flex items-start justify-between mb-2 cursor-pointer"
                           onClick={() => toggleResultExpansion(result.fileId)}
@@ -451,7 +541,7 @@ export default function FileSearchSystem() {
                           <div className="flex items-center gap-2">
                             <span className="text-lg">{getFileIcon(result.fileType)}</span>
                             <div>
-                              <h3 className="font-medium">{result.filename}</h3>
+                              <h3 className="font-medium text-indigo-700 dark:text-indigo-300">{result.filename}</h3>
                               <div className="flex gap-2 mt-1">
                                 <Badge variant="outline" className="text-xs">
                                   {result.fileType}
@@ -467,7 +557,7 @@ export default function FileSearchSystem() {
                               </div>
                             </div>
                           </div>
-                          <Button variant="ghost" size="sm">
+                          <Button variant="ghost" size="sm" className="text-indigo-600 dark:text-indigo-400">
                             {expandedResults[result.fileId] ? (
                               <ChevronUp className="h-4 w-4" />
                             ) : (
@@ -478,7 +568,7 @@ export default function FileSearchSystem() {
 
                         <div className="space-y-2">
                           {result.matches.slice(0, 3).map((match, matchIndex) => (
-                            <div key={matchIndex} className="bg-muted/30 p-3 rounded text-sm">
+                            <div key={matchIndex} className="bg-indigo-50 dark:bg-indigo-900 p-3 rounded text-sm">
                               <div className="flex items-center gap-2 mb-2">
                                 {match.line && (
                                   <Badge variant="secondary" className="text-xs">
@@ -494,13 +584,13 @@ export default function FileSearchSystem() {
                                 {getMatchTypeBadge(match.matchType, match.exactMatch)}
                               </div>
                               <p
-                                className="text-muted-foreground"
+                                className="text-indigo-700 dark:text-indigo-300"
                                 dangerouslySetInnerHTML={{ __html: match.context }}
                               />
                             </div>
                           ))}
                           {result.matches.length > 3 && (
-                            <p className="text-sm text-muted-foreground text-center">
+                            <p className="text-sm text-indigo-700 dark:text-indigo-300 text-center">
                               +{result.matches.length - 3} more matches (expand to see all)
                             </p>
                           )}
@@ -509,14 +599,14 @@ export default function FileSearchSystem() {
                         {/* File Preview Section */}
                         {expandedResults[result.fileId] && (
                           <div className="mt-4 border-t pt-4">
-                            <h4 className="font-medium mb-2">All Matches & File Preview</h4>
+                            <h4 className="font-medium mb-2 text-indigo-700 dark:text-indigo-300">All Matches & File Preview</h4>
 
                             {/* Show all matches when expanded */}
                             {result.matches.length > 3 && (
                               <div className="mb-4 space-y-2">
-                                <h5 className="text-sm font-medium">Additional Matches:</h5>
+                                <h5 className="text-sm font-medium text-indigo-700 dark:text-indigo-300">Additional Matches:</h5>
                                 {result.matches.slice(3).map((match, matchIndex) => (
-                                  <div key={matchIndex + 3} className="bg-muted/20 p-2 rounded text-sm">
+                                  <div key={matchIndex + 3} className="bg-indigo-50 dark:bg-indigo-900 p-2 rounded text-sm">
                                     <div className="flex items-center gap-2 mb-1">
                                       {match.line && (
                                         <Badge variant="secondary" className="text-xs">
@@ -532,7 +622,7 @@ export default function FileSearchSystem() {
                                       {getMatchTypeBadge(match.matchType, match.exactMatch)}
                                     </div>
                                     <p
-                                      className="text-muted-foreground text-xs"
+                                      className="text-indigo-700 dark:text-indigo-300 text-xs"
                                       dangerouslySetInnerHTML={{ __html: match.context }}
                                     />
                                   </div>
@@ -540,16 +630,16 @@ export default function FileSearchSystem() {
                               </div>
                             )}
 
-                            <div className="bg-muted p-4 rounded-md max-h-96 overflow-auto">
+                            <div className="bg-indigo-100 dark:bg-indigo-900 p-4 rounded-md max-h-96 overflow-auto">
                               {previewContent[result.filename] ? (
                                 <div
-                                  className="whitespace-pre-wrap text-sm"
+                                  className="whitespace-pre-wrap text-sm text-indigo-700 dark:text-indigo-300"
                                   dangerouslySetInnerHTML={{
                                     __html: formatPreviewContent(previewContent[result.filename], searchQuery),
                                   }}
                                 />
                               ) : (
-                                <p className="text-muted-foreground text-sm">
+                                <p className="text-indigo-700 dark:text-indigo-300 text-sm">
                                   Preview not available for this file. The file may be in a format that doesn't support
                                   text extraction.
                                 </p>

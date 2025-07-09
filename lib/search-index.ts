@@ -71,6 +71,20 @@ class SearchIndex {
     const matches: SearchMatch[] = []
     const isPhrase = searchTerm.includes(" ")
 
+    // Simple Levenshtein distance for fuzzy matching
+    function levenshtein(a: string, b: string): number {
+      const matrix = Array.from({ length: b.length + 1 }, () => new Array(a.length + 1).fill(0))
+      for (let i = 0; i <= b.length; i++) matrix[i][0] = i
+      for (let j = 0; j <= a.length; j++) matrix[0][j] = j
+      for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+          if (b[i - 1] === a[j - 1]) matrix[i][j] = matrix[i - 1][j - 1]
+          else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1)
+        }
+      }
+      return matrix[b.length][a.length]
+    }
+
     // Search through lines for exact line numbers
     fileData.lines.forEach((line, lineIndex) => {
       const lowerLine = line.toLowerCase()
@@ -82,11 +96,14 @@ class SearchIndex {
           const match = this.createMatch(line, searchTerm, lineIndex + 1, fileData, true, "exact")
           matches.push(match)
         } else {
-          // Check for partial phrase matches (all words present)
+          // Check for partial phrase matches (significant portion of words present)
           const searchWords = searchTerm.split(/\s+/)
-          const allWordsPresent = searchWords.every((word) => lowerLine.includes(word.toLowerCase()))
+          const matchedWordsCount = searchWords.reduce((count, word) => {
+            return lowerLine.includes(word.toLowerCase()) ? count + 1 : count
+          }, 0)
+          const matchRatio = matchedWordsCount / searchWords.length
 
-          if (allWordsPresent) {
+          if (matchRatio >= 0.7) { // 70% words present
             const match = this.createMatch(line, searchTerm, lineIndex + 1, fileData, false, "partial")
             matches.push(match)
           }
@@ -106,12 +123,22 @@ class SearchIndex {
             isExactWord ? "exact" : "partial",
           )
           matches.push(match)
+        } else {
+          // Fuzzy match for single words with max distance 2
+          const words = lowerLine.split(/\s+/)
+          for (const word of words) {
+            if (levenshtein(word, searchTerm) <= 2) {
+              const match = this.createMatch(line, searchTerm, lineIndex + 1, fileData, false, "fuzzy")
+              matches.push(match)
+              break
+            }
+          }
         }
       }
     })
 
-    // Limit matches per file to avoid overwhelming results
-    return matches.slice(0, 10)
+    // Limit matches per file to avoid overwhelming results, increased to 20
+    return matches.slice(0, 20)
   }
 
   private createMatch(
