@@ -22,8 +22,10 @@ export async function POST(request: NextRequest) {
         detectedFileType = "application/pdf"
         break
       case "doc":
-      case "docx":
         detectedFileType = "application/msword"
+        break
+      case "docx":
+        detectedFileType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         break
       case "txt":
         detectedFileType = "text/plain"
@@ -46,6 +48,9 @@ export async function POST(request: NextRequest) {
       console.log(
         `Using extracted content: ${processedContent.text.length} characters, ${processedContent.lines.length} lines`,
       )
+      if (detectedFileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+        console.log(`DOCX file indexed with ${processedContent.lines.length} lines and ${processedContent.pages.length} pages`)
+      }
     } else {
       // Fallback to mock content if no real content available
       console.log(`No real content available, using fallback content for: ${filename}`)

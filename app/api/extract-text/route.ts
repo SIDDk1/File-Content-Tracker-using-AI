@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
     } else if (file.name.toLowerCase().endsWith(".docx")) {
       // Extract text from DOCX files with structure tracking
       extractedContent = await extractFromDocx(file)
+      console.log(`DOCX extracted content length: ${extractedContent.text.length}, lines: ${extractedContent.lines.length}`)
     } else if (file.name.toLowerCase().endsWith(".doc")) {
       // For older DOC files
       extractedContent = await extractFromDoc(file)
@@ -84,41 +85,40 @@ async function extractFromTxt(file: File): Promise<ExtractedContent> {
   return processTextIntoStructure(text)
 }
 
+import mammoth from "mammoth"
+
 async function extractFromDocx(file: File): Promise<ExtractedContent> {
   try {
     const arrayBuffer = await file.arrayBuffer()
-    const uint8Array = new Uint8Array(arrayBuffer)
-    const decoder = new TextDecoder()
-    const content = decoder.decode(uint8Array)
+    const result = await mammoth.extractRawText({ arrayBuffer })
+    const fullText = result.value.trim()
 
-    // Enhanced DOCX text extraction with paragraph tracking
-    const paragraphMatches = content.match(/<w:p[^>]*>.*?<\/w:p>/gs) || []
-    const extractedParagraphs: string[] = []
-
-    for (const paragraph of paragraphMatches) {
-      const textMatches = paragraph.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || []
-      const paragraphText = textMatches
-        .map((match) => match.replace(/<w:t[^>]*>/, "").replace(/<\/w:t>/, ""))
-        .join("")
-        .trim()
-
-      if (paragraphText.length > 0) {
-        extractedParagraphs.push(paragraphText)
-      }
+    if (fullText.length === 0) {
+      return processTextIntoStructure(generateDocxFallback(file.name))
     }
 
-    if (extractedParagraphs.length > 0) {
-      const fullText = extractedParagraphs.join("\n")
-      return processTextIntoStructure(fullText)
+    const lines = fullText.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0)
+
+    const pages = []
+    const linesPerPage = 25
+    for (let i = 0; i < lines.length; i += linesPerPage) {
+      const pageLines = lines.slice(i, i + linesPerPage)
+      const pageNumber = Math.floor(i / linesPerPage) + 1
+      const startLine = i + 1
+      const endLine = Math.min(i + linesPerPage, lines.length)
+      pages.push({
+        pageNumber,
+        content: pageLines.join("\n"),
+        startLine,
+        endLine,
+      })
     }
 
-    // Fallback extraction
-    const readableText = content
-      .replace(/[^\x20-\x7E\n\r\t]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-
-    return processTextIntoStructure(readableText.length > 50 ? readableText : generateDocxFallback(file.name))
+    return {
+      text: fullText,
+      lines,
+      pages,
+    }
   } catch (error) {
     console.error("DOCX extraction error:", error)
     return processTextIntoStructure(generateDocxFallback(file.name))
