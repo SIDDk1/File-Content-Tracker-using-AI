@@ -30,6 +30,18 @@ export async function POST(request: NextRequest) {
       case "txt":
         detectedFileType = "text/plain"
         break
+      case "xls":
+        detectedFileType = "application/vnd.ms-excel"
+        break
+      case "xlsx":
+        detectedFileType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        break
+      case "ppt":
+        detectedFileType = "application/vnd.ms-powerpoint"
+        break
+      case "pptx":
+        detectedFileType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        break
     }
 
     let processedContent: ProcessedContent = {
@@ -86,6 +98,15 @@ export async function POST(request: NextRequest) {
     )
     console.log(`Search index now contains ${searchIndex.getFileCount()} files`)
 
+    // Detect fallback content strings to set isRealContent flag
+    const fallbackIndicators = [
+      "Fallback content for",
+      "Business Document:",
+      "Document Content:",
+      "Unable to extract text from",
+    ]
+    const isFallback = fallbackIndicators.some((indicator) => processedContent.text.includes(indicator))
+
     return NextResponse.json({
       success: true,
       processed: filename,
@@ -93,7 +114,7 @@ export async function POST(request: NextRequest) {
       contentLength: processedContent.text.length,
       lineCount: processedContent.lines.length,
       pageCount: processedContent.pages.length,
-      isRealContent: !!(fileContent && fileContent.trim().length > 0),
+      isRealContent: !!(fileContent && fileContent.trim().length > 0) && !isFallback,
     })
   } catch (error) {
     console.error("Processing error:", error)

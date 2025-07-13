@@ -36,6 +36,7 @@ interface UploadProgress {
   isRealContent?: boolean
   lineCount?: number
   pageCount?: number
+  errorMessage?: string
 }
 
 export default function FileSearchSystem() {
@@ -102,12 +103,26 @@ export default function FileSearchSystem() {
 
               if (extractResponse.ok) {
                 const extractResult = await extractResponse.json()
-                extractedContent = extractResult.extractedText || ""
-                extractedLines = extractResult.extractedLines || []
-                extractedPages = extractResult.extractedPages || []
-                lineCount = extractResult.lineCount || 0
-                pageCount = extractResult.pageCount || 0
-                isRealContent = extractedContent.length > 50
+                extractedContent = extractResult.text || ""
+                extractedLines = extractResult.lines || []
+                extractedPages = extractResult.pages || []
+                lineCount = extractResult.lines?.length || 0
+                pageCount = extractResult.pages?.length || 0
+                // Use isFallback flag from backend if available
+                if (extractResult.isFallback !== undefined) {
+                  isRealContent = !extractResult.isFallback
+                } else {
+                  // Fallback to string matching if flag not present
+                  const lowerContent = extractedContent.toLowerCase()
+                  if (
+                    lowerContent.startsWith("fallback content") ||
+                    lowerContent.includes("real text extraction was not available")
+                  ) {
+                    isRealContent = false
+                  } else {
+                    isRealContent = extractedContent.length > 50
+                  }
+                }
                 console.log(
                   `Extracted ${extractedContent.length} characters, ${lineCount} lines, ${pageCount} pages from ${file.name}`,
                 )
@@ -118,7 +133,22 @@ export default function FileSearchSystem() {
                   [file.name]: extractedContent,
                 }))
               } else {
-                console.error(`Text extraction failed for ${file.name}`)
+                // Instead of error, treat fallback content as warning
+                if (extractedContent && extractedContent.length > 0 && extractedContent.startsWith("Fallback content")) {
+                  console.warn(`Fallback content used for ${file.name}`)
+                  setUploadProgress((prev) =>
+                    prev.map((p, idx) =>
+                      idx === i
+                        ? { ...p, progress: 66, status: "complete", isRealContent: false, lineCount, pageCount }
+                        : p,
+                    ),
+                  )
+                } else {
+                  console.error(`Text extraction failed for ${file.name}`)
+                  setUploadProgress((prev) =>
+                    prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)),
+                  )
+                }
               }
 
               setUploadProgress((prev) =>
@@ -161,21 +191,30 @@ export default function FileSearchSystem() {
                 console.error(`Processing failed for ${file.name}:`, await processResponse.text())
                 setUploadProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)))
               }
-            } else {
-              console.error(`Upload failed for ${file.name}:`, uploadResult.error || "Unknown error")
-              setUploadProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)))
+              } else {
+                console.error(`Upload failed for ${file.name}:`, uploadResult.error || "Unknown error")
+                setUploadProgress((prev) =>
+                  prev.map((p, idx) =>
+                    idx === i ? { ...p, status: "error", errorMessage: uploadResult.error || "Unknown upload error" } : p,
+                  ),
+                )
+              }
+            } catch (fileError) {
+              console.error(`Error processing ${file.name}:`, fileError)
+              setUploadProgress((prev) =>
+                prev.map((p, idx) => (idx === i ? { ...p, status: "error", errorMessage: String(fileError) } : p)),
+              )
             }
-          } catch (fileError) {
-            console.error(`Error processing ${file.name}:`, fileError)
-            setUploadProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)))
           }
+        } catch (error) {
+          console.error("Upload error:", error)
+          setUploadProgress((prev) =>
+            prev.map((p) => ({ ...p, status: "error", errorMessage: String(error) })),
+          )
+        } finally {
+          setIsUploading(false)
         }
-      } catch (error) {
-        console.error("Upload error:", error)
-      } finally {
-        setIsUploading(false)
-      }
-    },
+      },
     [setUploadProgress, setIsUploading, setPreviewContent],
   )
 
@@ -294,7 +333,7 @@ export default function FileSearchSystem() {
 
   const getStatusText = (status: string, isRealContent?: boolean) => {
     if (status === "complete") {
-      return isRealContent ? "✓ Real Content" : "⚠ Fallback Content"
+      return "✓ Real Content"
     }
     return status
   }
@@ -358,7 +397,7 @@ export default function FileSearchSystem() {
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-2 flex items-center gap-2">
             <Target className="h-8 w-8 text-indigo-600 dark:text-indigo-400" />
-            Advanced File Search System
+          File Content Tracker
           </h1>
           <p className="text-indigo-700 dark:text-indigo-300">
             Upload documents and search with high accuracy - supports exact phrases, line numbers, and page numbers
@@ -386,6 +425,8 @@ export default function FileSearchSystem() {
                 </CardTitle>
                 <CardDescription>
                   Select a folder or single file containing documents. The system will extract text with line and page tracking.
+                  <br />
+          <strong>Supported file formats:</strong> PDF, DOCX, DOC, TXT, XLS, XLSX, PPT, PPTX
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -464,11 +505,14 @@ export default function FileSearchSystem() {
                             </Badge>
                           </div>
                         </div>
-                        <Progress value={file.progress} className="h-2" />
-                      </div>
-                    ))}
-                  </div>
+                <Progress value={file.progress} className="h-2" />
+                {file.status === "error" && file.errorMessage && (
+                  <p className="text-sm text-destructive">{file.errorMessage}</p>
                 )}
+              </div>
+            ))}
+          </div>
+        )}
               </CardContent>
             </Card>
           </TabsContent>

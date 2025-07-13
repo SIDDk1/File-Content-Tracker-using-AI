@@ -1,0 +1,15 @@
+<<<<<<<
+          } catch (fileError) {
+            console.error(`Error processing ${file.name}:`, fileError)
+            setUploadProgress((prev) =>
+              prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)),
+            )
+          }
+=======
+          } catch (fileError) {
+            console.error(`Error processing ${file.name}:`, fileError)
+            setUploadProgress((prev) =>
+              prev.map((p, idx) => (idx === i ? { ...p, status: "error", errorMessage: `Error: ${String(fileError)}` } : p)),
+            )
+          }
+>>>>>>>

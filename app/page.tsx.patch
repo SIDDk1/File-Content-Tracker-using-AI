@@ -1,0 +1,11 @@
+<<<<<<<
+              if (uploadResponse.ok) {
+              setUploadProgress((prev) =>
+                prev.map((p, idx) => (idx === i ? { ...p, progress: 33, status: "extracting" } : p)),
+              )
+=======
+              if (uploadResponse.ok) {
+              setUploadProgress((prev) =>
+                prev.map((p, idx) => (idx === i ? { ...p, progress: 33, status: "extracting", errorMessage: undefined } : p)),
+              )
+>>>>>>> 

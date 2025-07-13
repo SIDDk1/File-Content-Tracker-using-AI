@@ -1,0 +1,104 @@
+interface ExtractedContent {
+  text: string
+  lines: string[]
+  pages: { pageNumber: number; content: string; startLine: number; endLine: number }[]
+}
+=======
+import { type NextRequest, NextResponse } from "next/server"
+import pdfjsLib from "pdfjs-dist/legacy/build/pdf"
+import { extractDocxText } from "@/lib/docx-extract"
+
+interface ExtractedContent {
+  text: string
+  lines: string[]
+  pages: { pageNumber: number; content: string; startLine: number; endLine: number }[]
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const formData = await request.formData()
+    const file = formData.get("file") as File | null
+
+    if (!file) {
+      return NextResponse.json({ error: "No file provided" }, { status: 400 })
+    }
+
+    const filename = file.name
+    const fileExtension = filename.split(".").pop()?.toLowerCase() || ""
+    const arrayBuffer = await file.arrayBuffer()
+
+    let extractedContent: ExtractedContent = {
+      text: "",
+      lines: [],
+      pages: [],
+    }
+
+    if (fileExtension === "pdf") {
+      // PDF extraction logic (existing)
+      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
+      const pdf = await loadingTask.promise
+      let fullText = ""
+      const pages = []
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i)
+        const content = await page.getTextContent()
+        const strings = content.items.map((item: any) => item.str)
+        const pageText = strings.join(" ")
+        fullText += pageText + "\n"
+        pages.push({
+          pageNumber: i,
+          content: pageText,
+          startLine: fullText.split(/\\r?\\n/).length,
+          endLine: fullText.split(/\\r?\\n/).length,
+        })
+      }
+
+      extractedContent = {
+        text: fullText,
+        lines: fullText.split(/\\r?\\n/).filter(line => line.trim().length > 0),
+        pages,
+      }
+    } else if (fileExtension === "docx") {
+      // Use mammoth to extract docx text
+      const { text, lines } = await extractDocxText(arrayBuffer)
+      extractedContent = {
+        text,
+        lines,
+        pages: [
+          {
+            pageNumber: 1,
+            content: text,
+            startLine: 1,
+            endLine: lines.length,
+          },
+        ],
+      }
+    } else {
+      // Fallback for unsupported file types
+      extractedContent = {
+        text: `Fallback content for ${filename}. Real text extraction was not available for this file type: ${fileExtension}.`,
+        lines: [`Fallback content for ${filename}.`],
+        pages: [
+          {
+            pageNumber: 1,
+            content: `Fallback content for ${filename}.`,
+            startLine: 1,
+            endLine: 1,
+          },
+        ],
+      }
+    }
+
+    return NextResponse.json(extractedContent)
+  } catch (error) {
+    console.error("Extraction error:", error)
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Extraction failed",
+        details: error instanceof Error ? error.stack : String(error),
+      },
+      { status: 500 },
+    )
+  }
+}

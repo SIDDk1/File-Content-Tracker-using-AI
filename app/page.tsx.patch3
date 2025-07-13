@@ -1,0 +1,50 @@
+<<<<<<<
+              if (processResponse.ok) {
+                const processResult = await processResponse.json()
+                setUploadProgress((prev) =>
+                  prev.map((p, idx) =>
+                    idx === i
+                      ? {
+                          ...p,
+                          progress: 100,
+                          status: "complete",
+                          isRealContent: processResult.isRealContent,
+                          lineCount: processResult.lineCount,
+                          pageCount: processResult.pageCount,
+                        }
+                      : p,
+                  ),
+                )
+              } else {
+                const errorText = await processResponse.text()
+                console.error(`Processing failed for ${file.name}:`, errorText)
+                setUploadProgress((prev) =>
+                  prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)),
+                )
+              }
+=======
+              if (processResponse.ok) {
+                const processResult = await processResponse.json()
+                setUploadProgress((prev) =>
+                  prev.map((p, idx) =>
+                    idx === i
+                      ? {
+                          ...p,
+                          progress: 100,
+                          status: "complete",
+                          isRealContent: processResult.isRealContent,
+                          lineCount: processResult.lineCount,
+                          pageCount: processResult.pageCount,
+                          errorMessage: undefined,
+                        }
+                      : p,
+                  ),
+                )
+              } else {
+                const errorText = await processResponse.text()
+                console.error(`Processing failed for ${file.name}:`, errorText)
+                setUploadProgress((prev) =>
+                  prev.map((p, idx) => (idx === i ? { ...p, status: "error", errorMessage: `Processing failed: ${errorText}` } : p)),
+                )
+              }
+>>>>>>>

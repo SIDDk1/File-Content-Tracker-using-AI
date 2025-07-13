@@ -1,0 +1,14 @@
+<<<<<<<
+            } else {
+              console.error(`Upload failed for ${file.name}:`, uploadResult.error || "Unknown error")
+              setUploadProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "error" } : p)))
+            }
+=======
+            } else {
+              const errorMsg = uploadResult.error || "Unknown error"
+              console.error(`Upload failed for ${file.name}:`, errorMsg)
+              setUploadProgress((prev) =>
+                prev.map((p, idx) => (idx === i ? { ...p, status: "error", errorMessage: `Upload failed: ${errorMsg}` } : p)),
+              )
+            }
+>>>>>>>
