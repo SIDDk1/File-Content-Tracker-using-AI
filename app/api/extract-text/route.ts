@@ -63,14 +63,82 @@ async function extractFromExcel(file: File): Promise<ExtractedContent> {
   }
 }
 
+const officeparser = require("officeparser") as any;
+
+function parsePptBuffer(buffer: Buffer): Promise<any> {
+  return new Promise((resolve, reject) => {
+    officeparser.parse(buffer, (err: Error | null, data: any) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(data);
+      }
+    });
+  });
+}
+
+import { execFile } from "child_process";
+import { tmpdir } from "os";
+import { join } from "path";
+import { promises as fsPromises } from "fs";
+
 async function extractFromPpt(file: File): Promise<ExtractedContent & { isFallback?: boolean }> {
-  // Fallback for ppt/pptx extraction in server environment
-  return {
-    text: `PowerPoint extraction is not supported in the server environment for file: ${file.name}`,
-    lines: [],
-    pages: [],
-    isFallback: true,
-  };
+  const tempDir = tmpdir();
+  const inputFilePath = join(tempDir, file.name);
+  const outputFileName = file.name.replace(/\.[^/.]+$/, "") + ".txt";
+  const outputFilePath = join(tempDir, outputFileName);
+
+  try {
+    // Save uploaded file to temp directory
+    const arrayBuffer = await file.arrayBuffer();
+    await fsPromises.writeFile(inputFilePath, Buffer.from(arrayBuffer));
+
+    // Convert ppt/pptx to txt using LibreOffice CLI (soffice)
+    await new Promise<void>((resolve, reject) => {
+      execFile("soffice", [
+        "--headless",
+        "--convert-to",
+        "html:XHTML Writer File",
+        "--outdir",
+        tempDir,
+        inputFilePath,
+      ], (error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    // Read converted text file
+    const htmlOutputFileName = file.name.replace(/\.[^/.]+$/, "") + ".html";
+    const htmlOutputFilePath = join(tempDir, htmlOutputFileName);
+    const htmlContent = await fsPromises.readFile(htmlOutputFilePath, "utf-8");
+
+    // Simple HTML to text conversion by stripping tags
+    const text = htmlContent.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+    // Clean up temp files
+    await fsPromises.unlink(inputFilePath);
+    await fsPromises.unlink(htmlOutputFilePath);
+
+    if (!text || text.trim().length === 0) {
+      console.error(`LibreOffice conversion returned empty text for file: ${file.name}`);
+      return { ...processTextIntoStructure(`Fallback content for ${file.name}. Real text extraction was not available for this PowerPoint file.`), isFallback: true };
+    }
+
+    return { ...processTextIntoStructure(text.trim()), isFallback: false };
+  } catch (error) {
+    console.error("PowerPoint extraction error:", error);
+    try {
+      // Attempt to clean up temp files if they exist
+      await fsPromises.unlink(inputFilePath).catch(() => {});
+      await fsPromises.unlink(outputFilePath).catch(() => {});
+    } catch {}
+
+    return { ...processTextIntoStructure(`Fallback content for ${file.name}. Real text extraction was not available for this PowerPoint file.`), isFallback: true };
+  }
 }
 
 async function extractFromPdf(file: File): Promise<ExtractedContent> {

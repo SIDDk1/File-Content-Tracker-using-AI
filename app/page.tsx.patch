@@ -1,11 +1,127 @@
-<<<<<<<
-              if (uploadResponse.ok) {
-              setUploadProgress((prev) =>
-                prev.map((p, idx) => (idx === i ? { ...p, progress: 33, status: "extracting" } : p)),
-              )
+<p className="text-blue-400 mb-6">PDF, DOCX, PPTX CS XLSX</p>
+            <div className="flex justify-center gap-4">
+              <label
+                htmlFor="folder-upload"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg shadow-[0_0_15px_#3b82f6] cursor-pointer transition"
+              >
+                Upload Folder
+              </label>
+              <input
+                type="file"
+                multiple
+                // @ts-ignore
+                webkitdirectory=""
+                onChange={handleFolderUpload}
+                className="hidden"
+                id="folder-upload"
+                disabled={isUploading}
+              />
+              <label
+                htmlFor="file-upload"
+                className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg shadow-[0_0_15px_#a855f7] cursor-pointer transition"
+              >
+                Upload Files
+              </label>
+              <input
+                type="file"
+                multiple
+                onChange={async (e) => {
+                  const files = e.target.files
+                  if (!files) return
+                  await processFiles(Array.from(files))
+                }}
+                className="hidden"
+                id="file-upload"
+                disabled={isUploading}
+              />
+            </div>
 =======
-              if (uploadResponse.ok) {
-              setUploadProgress((prev) =>
-                prev.map((p, idx) => (idx === i ? { ...p, progress: 33, status: "extracting", errorMessage: undefined } : p)),
-              )
->>>>>>> 
+            <p className="text-blue-400 mb-6">Drag &amp; drop files here, or select</p>
+            <p className="text-blue-400 mb-6 font-semibold">Supported file types: PDF, DOCX, PPTX, CSV, XLSX</p>
+            <div className="flex justify-center gap-4">
+              <label
+                htmlFor="folder-upload"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg shadow-[0_0_15px_#3b82f6] cursor-pointer transition"
+              >
+                Upload Folder
+              </label>
+              <input
+                type="file"
+                multiple
+                // @ts-ignore
+                webkitdirectory=""
+                onChange={handleFolderUpload}
+                className="hidden"
+                id="folder-upload"
+                disabled={isUploading}
+              />
+              <label
+                htmlFor="file-upload"
+                className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg shadow-[0_0_15px_#a855f7] cursor-pointer transition"
+              >
+                Upload Files
+              </label>
+              <input
+                type="file"
+                multiple
+                onChange={async (e) => {
+                  const files = e.target.files
+                  if (!files) return
+                  await processFiles(Array.from(files))
+                }}
+                className="hidden"
+                id="file-upload"
+                disabled={isUploading}
+              />
+            </div>
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+=======
+          </div>
+
+          {uploadProgress.length > 0 && (
+            <div className="mt-8 max-w-xl mx-auto bg-indigo-900 rounded-lg p-4 border border-blue-500 shadow-[0_0_15px_#4f46e5]">
+              <h2 className="text-white text-xl font-semibold mb-4">Uploaded Files</h2>
+              <ul className="space-y-3">
+                {uploadProgress.map((file, index) => (
+                  <li key={index} className="text-white">
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium">{file.filename}</span>
+                      <span className="text-sm">
+                        {file.status.charAt(0).toUpperCase() + file.status.slice(1)}
+                      </span>
+                    </div>
+                    <div className="w-full bg-blue-700 rounded-full h-2 mt-1">
+                      <div
+                        className={`h-2 rounded-full ${
+                          file.status === "error" ? "bg-red-600" : "bg-green-500"
+                        }`}
+                        style={{ width: `${file.progress}%` }}
+                      />
+                    </div>
+                    {file.errorMessage && (
+                      <p className="text-red-400 text-sm mt-1">{file.errorMessage}</p>
+                    )}
+                    {(file.lineCount !== undefined || file.pageCount !== undefined) && (
+                      <p className="text-blue-300 text-sm mt-1">
+                        {file.lineCount !== undefined && <>Lines: {file.lineCount} </>}
+                        {file.pageCount !== undefined && <>Pages: {file.pageCount}</>}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
