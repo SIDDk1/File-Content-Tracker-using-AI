@@ -356,7 +356,7 @@ export default function FileSearchSystem() {
     <div className="min-h-screen bg-background">
       <div className="container mx-auto p-6">
         <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">Advanced File Search System</h1>
+          <h1 className="text-4xl font-bold mb-2">FILE CONTENT TRACKER</h1>
           <p className="text-muted-foreground">
             Upload documents and search with high accuracy - supports exact phrases, line numbers, and page numbers
           </p>
